@@ -1,0 +1,8 @@
+*
+!.gitignore
+!train.py
+!README
+!requirements.txt
+!notebooks/
+!notebooks/*.ipynb
+!Actividad4.py
