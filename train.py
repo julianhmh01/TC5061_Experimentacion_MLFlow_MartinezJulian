@@ -4,6 +4,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+import mlflow
+import mlflow.sklearn
+
 from sklearn.datasets import load_wine
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
 from sklearn.preprocessing import StandardScaler
@@ -40,9 +43,7 @@ def pipeline_use(C=1.0, kernel="rbf",gamma="scale", random_state=42):
 def entrenamiendo_modelo(pipeline, Xtrain, ytrain):
     pipeline.fit(Xtrain, ytrain)
     return pipeline
-
-
-
+    
 def evaluacion_modelo(pipeline, Xtest, ytest, target_names):
     y_pred = pipeline.predict(Xtest)
 
@@ -77,8 +78,9 @@ def cross_val_acc(pipeline, X, y, cv_folds=5, random_state=42):
 
 
 def parse_args():
+
     parser = argparse.ArgumentParser(
-        description="Entrenamiento de un modelo SVC para clasificar vinos."
+        description="Entrenamiento de modelo SVC para clasificar vinos (Wine dataset)."
     )
     parser.add_argument(
         "--C", type=float, default=1.0,
@@ -86,16 +88,16 @@ def parse_args():
     )
     parser.add_argument(
         "--kernel", type=str, default="rbf",
-        choices=["rbf", "linear", "poly", "sigmoid"],
+        choices=["rbf","linear","poly","sigmoid"],
         help="Kernel del SVC (default: rbf)"
     )
     parser.add_argument(
         "--gamma", type=str, default="scale",
-        help="Coeficiente gamma del kernel: 'scale', 'auto', o un número"
+        help="Coeficiente gamma del kernel:'scale', 'auto', o un número"
     )
     parser.add_argument(
         "--test_size", type=float, default=0.20,
-        help="Proporción del dataset reservada para prueba"
+        help="Proporción del dataset para prueba"
     )
     parser.add_argument(
         "--random_state", type=int, default=42,
@@ -109,40 +111,54 @@ def parse_args():
 
 
 def main():
-    args=parse_args()
-    gamma =args.gamma
-
+    args = parse_args()
+    gamma = args.gamma
     try:
         gamma = float(gamma)
     except ValueError:
         pass
+
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_experiment("Vino_svc")
+
     print("Hiperparámetros de esta corrida:")
-    print(f"C= {args.C}")
-    print(f"kernel = {args.kernel}")
-    print(f"gamma = {gamma}")
-    print(f"test_size= {args.test_size}")
-    print(f"random_state = {args.random_state}")
+    print(f"C = {args.C}")
+    print(f"kernel ={args.kernel}")
+    print(f"gamma ={gamma}")
+    print(f"test_size  = {args.test_size}")
+    print(f"random_state= {args.random_state}")
     print(f"cv_folds = {args.cv_folds}")
     print()
 
-    #Entrenamiento
-    X, y, target_names = carga_datos()
-    Xtrain,Xtest, ytrain, ytest = split_datos(X, y, test_size=args.test_size, random_state=args.random_state)
+    with mlflow.start_run():
+        mlflow.log_param("C", args.C)
+        mlflow.log_param("kernel", args.kernel)
+        mlflow.log_param("gamma", gamma)
+        mlflow.log_param("test_size", args.test_size)
+        mlflow.log_param("random_state", args.random_state)
+        mlflow.log_param("cv_folds", args.cv_folds)
 
-    pipeline=pipeline_use(C=args.C, kernel=args.kernel, gamma=gamma, random_state=args.random_state)
-    pipeline=entrenamiendo_modelo(pipeline, Xtrain, ytrain)
+        X, y, target_names = carga_datos()
+        Xtrain, Xtest, ytrain, ytest = split_datos(X, y,test_size=args.test_size,random_state=args.random_state)
 
-    metrics, y_pred = evaluacion_modelo(pipeline, Xtest, ytest, target_names)
-    print("\nMétricas en test:")
-    for nombre, valor in metrics.items():
-        print(f"  {nombre}: {valor:.4f}")
+        pipeline= pipeline_use(C=args.C, kernel=args.kernel,gamma=gamma,random_state=args.random_state)
+        pipeline = entrenamiendo_modelo(pipeline, Xtrain, ytrain)
+        mlflow.sklearn.log_model(pipeline, name="model")
 
-    cm_path = imagen_confusion(ytest, y_pred, target_names)
-    print(f"\nMatriz de confusión en: {cm_path}")
+        metrics,y_pred = evaluacion_modelo(pipeline,Xtest,ytest, target_names)
+        print("\nMétricas en test:")
+        for nombre, valor in metrics.items():
+            print(f"  {nombre}: {valor:.4f}")
+            mlflow.log_metric(nombre, valor)
 
-    cv_scores = cross_val_acc(pipeline, X, y, cv_folds=args.cv_folds, random_state=args.random_state)
-    print(f"\nAccuracy promedio ({args.cv_folds}-fold CV): {cv_scores.mean():.4f} +/- {cv_scores.std():.4f}")
+        cm_path = imagen_confusion(ytest, y_pred, target_names)
+        print(f"\nMatriz de confusión en: {cm_path}")
+        mlflow.log_artifact(cm_path)
 
+        cv_scores = cross_val_acc(pipeline,X,y, cv_folds=args.cv_folds, random_state=args.random_state)
+        print(f"\nAccuracy promedio ({args.cv_folds}-fold CV): {cv_scores.mean():.4f} +/- {cv_scores.std():.4f}")
+        mlflow.log_metric("cv_accuracy_mean", cv_scores.mean())
+        mlflow.log_metric("cv_accuracy_std", cv_scores.std())
 
 if __name__ == "__main__":
     main()
